@@ -26,6 +26,7 @@
 #include <ctime>
 #include <string>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <poll.h>
@@ -154,6 +155,7 @@ static std::set<String8> sServiceErrorEventSet;
 
 CameraService::CameraService(
         std::shared_ptr<CameraServiceProxyWrapper> cameraServiceProxyWrapper) :
+        mPhysicalFrontCamStatus(false),
         mCameraServiceProxyWrapper(cameraServiceProxyWrapper == nullptr ?
                 std::make_shared<CameraServiceProxyWrapper>() : cameraServiceProxyWrapper),
         mEventLog(DEFAULT_EVENT_LOG_LENGTH),
@@ -2154,6 +2156,7 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
             mServiceLock.lock();
         } else {
             // Otherwise, add client to active clients list
+            physicalFrontCam(cameraId == "1");
             finishConnectLocked(client, partial, oomScoreOffset, systemNativeClient);
         }
 
@@ -2276,6 +2279,27 @@ status_t CameraService::addOfflineClient(String8 cameraId, sp<BasicClient> offli
     } // lock is destroyed, allow further connect calls
 
     return OK;
+}
+
+void CameraService::physicalFrontCam(bool on) {
+    if(on == mPhysicalFrontCamStatus) return;
+    mPhysicalFrontCamStatus = on;
+
+    if(access("/dev/asusMotoDrv", F_OK) == 0) {
+        int pid = fork();
+        if(pid == 0) {
+            const char* cmd[] = {
+                "/system/bin/asus-motor",
+                "0",
+                NULL
+            };
+            cmd[1] = on ? "0" : "1";
+            execve("/system/bin/asus-motor", (char**)cmd, environ);
+            _exit(1);
+        } else {
+            waitpid(pid, NULL, 0);
+        }
+    }
 }
 
 Status CameraService::turnOnTorchWithStrengthLevel(const String16& cameraId, int32_t torchStrength,
@@ -3538,6 +3562,8 @@ binder::Status CameraService::BasicClient::disconnect() {
         return res;
     }
     mDisconnected = true;
+
+    sCameraService->physicalFrontCam(false);
 
     sCameraService->removeByClient(this);
     sCameraService->logDisconnected(mCameraIdStr, mClientPid, String8(mClientPackageName));
