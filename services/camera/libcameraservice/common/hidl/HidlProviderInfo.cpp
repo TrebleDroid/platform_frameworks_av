@@ -28,6 +28,7 @@
 #include <utils/Trace.h>
 
 #include <android/hardware/camera/device/3.7/ICameraDevice.h>
+#include <vendor/samsung/hardware/camera/provider/3.0/ISehCameraProvider.h>
 
 namespace {
 const bool kEnableLazyHal(property_get_bool("ro.camera.enableLazyHal", false));
@@ -136,6 +137,7 @@ status_t HidlProviderInfo::initializeHidlProvider(
             mMinorVersion = 6;
         }
     }
+
     // We need to check again since cast2_6.isOk() succeeds even if the provider
     // version isn't actually 2.6.
     if (interface2_6 == nullptr){
@@ -172,6 +174,9 @@ status_t HidlProviderInfo::initializeHidlProvider(
         return mapToStatusT(status);
     }
 
+    auto samsungCast = vendor::samsung::hardware::camera::provider::V3_0::ISehCameraProvider::castFrom(interface);
+    auto samsungProvider = samsungCast.isOk() ? static_cast<sp<vendor::samsung::hardware::camera::provider::V3_0::ISehCameraProvider>>(samsungCast) : nullptr;
+
     hardware::Return<bool> linked = interface->linkToDeath(this, /*cookie*/ mId);
     if (!linked.isOk()) {
         ALOGE("%s: Transaction error in linking to camera provider '%s' death: %s",
@@ -202,7 +207,7 @@ status_t HidlProviderInfo::initializeHidlProvider(
 
     // Get initial list of camera devices, if any
     std::vector<std::string> devices;
-    hardware::Return<void> ret = interface->getCameraIdList([&status, this, &devices](
+    auto cb = [&status, this, &devices](
             Status idStatus,
             const hardware::hidl_vec<hardware::hidl_string>& cameraDeviceNames) {
         status = idStatus;
@@ -219,7 +224,12 @@ status_t HidlProviderInfo::initializeHidlProvider(
                     mProviderPublicCameraIds.push_back(id);
                 }
             }
-        } });
+        } };
+    hardware::Return<void> ret;
+    if(samsungProvider != nullptr && property_get_bool("persist.sys.phh.samsung.camera_ids", false))
+        ret = samsungProvider->sehGetCameraIdList(cb);
+    else
+        ret = interface->getCameraIdList(cb);
     if (!ret.isOk()) {
         ALOGE("%s: Transaction error in getting camera ID list from provider '%s': %s",
                 __FUNCTION__, mProviderName.c_str(), linked.description().c_str());
