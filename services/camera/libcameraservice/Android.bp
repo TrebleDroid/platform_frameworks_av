@@ -166,6 +166,7 @@ cc_library_shared {
         "android.hardware.camera.device-V1-ndk",
         "vendor.samsung.hardware.camera.provider@3.0",
         "vendor.samsung.hardware.camera.provider@4.0",
+        "vendor.samsung.hardware.camera.device@5.0",
         "media_permission-aidl-cpp",
     ],
 
