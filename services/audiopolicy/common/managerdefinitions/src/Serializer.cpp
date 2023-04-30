@@ -660,6 +660,9 @@ std::variant<status_t, RouteTraits::Element> PolicySerializer::deserialize<Route
     }
     route->setSink(sink);
 
+    // This fixes broken mic while video record on some Exynos devices
+    bool disableBackMic = property_get_bool("persist.sys.phh.disable_back_mic", false);
+
     std::string sourcesAttr = getXmlAttribute(cur, Attributes::sources);
     if (sourcesAttr.empty()) {
         ALOGE("%s: No %s found", __func__, Attributes::sources);
@@ -672,18 +675,22 @@ std::variant<status_t, RouteTraits::Element> PolicySerializer::deserialize<Route
     char *devTag = strtok(sourcesLiteral.get(), ",");
     while (devTag != NULL) {
         if (strlen(devTag) != 0) {
-            sp<PolicyAudioPort> source = ctx->findPortByTagName(devTag);
-            if (source == NULL) {
-                source = ctx->findPortByTagName(trim(devTag));
-	    }
-            if (source == NULL && false) {
-                ALOGE("%s: no source found with name=%s", __func__, devTag);
-                return BAD_VALUE;
-            } else if (source == NULL) {
-                ALOGW("Skipping route source \"%s\" as it likely has vendor extension type",
-                        devTag);
+            if (disableBackMic && strcmp(devTag, "Built-In Back Mic") == 0) {
+                ALOGW("Skipping route source \"%s\" as it breaks video recording mic", devTag);
             } else {
-                sources.add(source);
+                sp<PolicyAudioPort> source = ctx->findPortByTagName(devTag);
+                if (source == NULL) {
+                    source = ctx->findPortByTagName(trim(devTag));
+                }
+                if (source == NULL && false) {
+                    ALOGE("%s: no source found with name=%s", __func__, devTag);
+                    return BAD_VALUE;
+                } else if (source == NULL) {
+                    ALOGW("Skipping route source \"%s\" as it likely has vendor extension type",
+                            devTag);
+                } else {
+                    sources.add(source);
+                }
             }
         }
         devTag = strtok(NULL, ",");
